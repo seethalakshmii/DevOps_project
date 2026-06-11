@@ -30,8 +30,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      - name: Terraform Init (S3 backend)
-        run: terraform init
+      - name: Terraform Init
+        run: terraform init -reconfigure
 
       - name: Terraform Validate
         run: terraform validate
