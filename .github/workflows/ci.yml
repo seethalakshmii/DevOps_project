@@ -15,7 +15,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Python setup + caching
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -28,12 +27,26 @@ jobs:
       - name: Run tests
         run: python -m pytest -v
 
-      # Docker build
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Build Docker image
         run: docker build -t devops-app .
 
-      # Security scan (Trivy)
-      - name: Scan image
+      - name: Scan image (Trivy)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: devops-app
+
+      - name: Tag Docker image
+        run: docker tag devops-app:latest ${{ secrets.ECR_REPOSITORY }}:latest
+
+      - name: Push to ECR
+        run: docker push ${{ secrets.ECR_REPOSITORY }}:latest
