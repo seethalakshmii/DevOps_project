@@ -1,10 +1,10 @@
 resource "aws_instance" "devops" {
 
-  ami           = "ami-0f58b397bc5c1f2e8"
-  instance_type = "t3.micro"
+  ami           = var.ami_id
+  instance_type = var.instance_type
 
   tags = {
-    Name = "devops-server"
+    Name = "DevOps-server"
   }
 }
 
