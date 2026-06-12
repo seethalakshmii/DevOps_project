@@ -75,12 +75,12 @@ jobs:
             --output text)
 
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-
       - name: Deploy via SSM
         run: |
           REGISTRY=$(echo "${{ secrets.ECR_REPOSITORY }}" | cut -d'/' -f1)
 
           aws ssm send-command \
+            --region ap-south-1 \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
             --parameters "commands=[
@@ -89,4 +89,4 @@ jobs:
               \"docker stop devops-app || true\",
               \"docker rm devops-app || true\",
               \"docker run -d --restart unless-stopped --name devops-app -p 80:5000 ${{ secrets.ECR_REPOSITORY }}:latest\"
-          ]"
+            ]"
