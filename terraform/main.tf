@@ -1,13 +1,7 @@
-provider "aws" {
-  region = "ap-south-1"
-}
-
-# -----------------------
-# DEFAULT VPC
-# -----------------------
 data "aws_vpc" "default" {
   default = true
 }
+
 
 data "aws_subnets" "default" {
   filter {
@@ -16,9 +10,7 @@ data "aws_subnets" "default" {
   }
 }
 
-# -----------------------
-# SECURITY GROUP
-# -----------------------
+
 resource "aws_security_group" "app_sg" {
   name   = "devops-app-sg"
   vpc_id = data.aws_vpc.default.id
@@ -55,9 +47,9 @@ resource "aws_security_group" "app_sg" {
   }
 }
 
-# -----------------------
-# EC2 INSTANCE (DOCKER ONLY)
-# -----------------------
+
+# EC2 INSTANCE (DOCKER INSTALL)
+
 resource "aws_instance" "app" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
