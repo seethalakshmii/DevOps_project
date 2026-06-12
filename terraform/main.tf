@@ -41,10 +41,7 @@ resource "aws_security_group" "app_sg" {
 }
 
 # ----------------------------------
-# IAM ROLE FOR EC2
-# Required for:
-# - AWS Systems Manager (SSM)
-# - Pulling images from ECR
+# IAM ROLE (SSM + ECR ACCESS)
 # ----------------------------------
 resource "aws_iam_role" "ec2_role" {
   name = "devops-ec2-role"
@@ -77,7 +74,7 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 }
 
 # ----------------------------------
-# UBUNTU 22.04 AMI
+# UBUNTU AMI
 # ----------------------------------
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -108,12 +105,17 @@ resource "aws_instance" "app" {
 set -e
 
 apt update -y
-apt install -y docker.io
+apt install -y docker.io snapd
 
 systemctl enable docker
 systemctl start docker
 
 usermod -aG docker ubuntu
+
+# Install SSM agent (IMPORTANT for your error fix)
+snap install amazon-ssm-agent --classic || true
+systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent || true
+systemctl start snap.amazon-ssm-agent.amazon-ssm-agent || true
 EOF
 
   tags = {
