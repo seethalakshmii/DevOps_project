@@ -104,18 +104,28 @@ resource "aws_instance" "app" {
 #!/bin/bash
 set -e
 
+# -----------------------------
+# UPDATE SYSTEM
+# -----------------------------
 apt update -y
-apt install -y docker.io snapd
 
+# -----------------------------
+# INSTALL DOCKER
+# -----------------------------
+apt install -y docker.io
 systemctl enable docker
 systemctl start docker
-
 usermod -aG docker ubuntu
 
-# Install SSM agent (IMPORTANT for your error fix)
-snap install amazon-ssm-agent --classic || true
-systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent || true
-systemctl start snap.amazon-ssm-agent.amazon-ssm-agent || true
+# -----------------------------
+# INSTALL SSM AGENT (FIXED - RELIABLE)
+# -----------------------------
+cd /tmp
+curl -O https://s3.ap-south-1.amazonaws.com/amazon-ssm-ap-south-1/latest/debian_amd64/amazon-ssm-agent.deb
+dpkg -i amazon-ssm-agent.deb
+
+systemctl enable amazon-ssm-agent
+systemctl start amazon-ssm-agent
 EOF
 
   tags = {
