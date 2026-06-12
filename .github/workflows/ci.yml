@@ -14,33 +14,50 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - run: pip install -r requirements.txt
-      - run: python -m pytest -v
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Run unit tests
+        run: python -m pytest -v
+
+      # ---------------- AWS AUTH (OIDC) ----------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ap-south-1
 
-      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
+      # ---------------- BUILD IMAGE ----------------
       - name: Build Docker Image
         run: |
           docker build -t devops-app:${{ github.sha }} .
-          docker tag devops-app:${{ github.sha }} ${{ secrets.ECR_REPOSITORY }}:latest
 
-      - name: Scan image (Trivy)
+      # ---------------- TRIVY SCAN ----------------
+      - name: Scan Docker image (Trivy)
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
-          image-ref: devops-app:latest
-          severity: CRITICAL,HIGH
-          exit-code: 0
+          image-ref: devops-app:${{ github.sha }}
+          format: table
 
-      - name: Push to ECR
-        run: docker push ${{ secrets.ECR_REPOSITORY }}:latest
+      # ---------------- TAG FOR ECR ----------------
+      - name: Tag image for ECR
+        run: |
+          docker tag devops-app:${{ github.sha }} \
+            ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+
+      # ---------------- PUSH TO ECR ----------------
+      - name: Push image to ECR
+        run: |
+          docker push ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
