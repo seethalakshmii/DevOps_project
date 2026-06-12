@@ -49,7 +49,7 @@ resource "aws_instance" "app" {
   instance_type          = var.instance_type
   vpc_security_group_ids = [aws_security_group.app_sg.id]
 
-  iam_instance_profile = "ec2-ssm-profile"
+  #iam_instance_profile = "ec2-ssm-profile"
 
   user_data = <<-EOF
               #!/bin/bash
