@@ -16,8 +16,9 @@ jobs:
       contents: read
 
     steps:
+
       # -------------------------
-      # AWS LOGIN (OIDC)
+      # AWS LOGIN
       # -------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -26,27 +27,23 @@ jobs:
           aws-region: ap-south-1
 
       # -------------------------
-      # GET INSTANCE ID (SAFE)
+      # GET TERRAFORM OUTPUT (NO AWS CLI)
       # -------------------------
-      - name: Get EC2 Instance ID
+      - name: Get Instance ID from Terraform
         run: |
-          INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=DevOps-App-Server" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text)
-
+          INSTANCE_ID=$(terraform output -raw instance_id)
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo "Instance ID: $INSTANCE_ID"
+          echo "Instance ID = $INSTANCE_ID"
 
       # -------------------------
-      # GET ECR LOGIN PASSWORD
+      # ECR LOGIN PASSWORD
       # -------------------------
-      - name: Get ECR login password
+      - name: Get ECR password
         run: |
           echo "ECR_PASSWORD=$(aws ecr get-login-password --region ap-south-1)" >> $GITHUB_ENV
 
       # -------------------------
-      # DEPLOY USING SSM
+      # DEPLOY VIA SSM
       # -------------------------
       - name: Deploy via SSM
         run: |
