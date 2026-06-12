@@ -27,13 +27,14 @@ jobs:
           aws-region: ap-south-1
 
       # -------------------------
-      # GET TERRAFORM OUTPUT (NO AWS CLI)
-      # -------------------------
-      - name: Get Instance ID from Terraform
+      - name: Get EC2 Instance ID
         run: |
-          INSTANCE_ID=$(terraform output -raw instance_id)
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=DevOps-App-Server" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo "Instance ID = $INSTANCE_ID"
 
       # -------------------------
       # ECR LOGIN PASSWORD
