@@ -52,15 +52,17 @@ resource "aws_instance" "app" {
 
 
   user_data = <<-EOF
-              #!/bin/bash
-              set -e
+#!/bin/bash
+set -e
 
-              yum update -y
-              yum install -y docker
-              systemctl start docker
-              systemctl enable docker
-              usermod -aG docker ec2-user
-              EOF
+apt update -y
+apt install -y docker.io
+
+systemctl start docker
+systemctl enable docker
+
+usermod -aG docker ubuntu
+EOF
 
   tags = {
     Name = "DevOps-App-Server"
