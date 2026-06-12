@@ -16,7 +16,3 @@ variable "app_name" {
   default     = "DevOps-App-Server"
 }
 
-variable "ecr_repository" {
-  description = "948749907640.dkr.ecr.ap-south-1.amazonaws.com/devops-app"
-  type        = string
-}

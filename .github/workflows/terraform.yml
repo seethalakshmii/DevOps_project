@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+    paths:
+      - "terraform/**"
 
 permissions:
   id-token: write
@@ -55,8 +56,9 @@ jobs:
       # -------------------------
       # Terraform Plan
       # -------------------------
+      
       - name: Terraform Plan
-        run: terraform plan
+        run: terraform plan -refresh=false
 
       # -------------------------
       # Terraform Apply
