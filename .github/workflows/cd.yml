@@ -16,37 +16,45 @@ jobs:
       contents: read
 
     steps:
-      - name: Configure AWS credentials (OIDC)
+      # -------------------------
+      # AWS LOGIN (OIDC)
+      # -------------------------
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ap-south-1
 
+      # -------------------------
+      # GET INSTANCE ID (SAFE)
+      # -------------------------
       - name: Get EC2 Instance ID
         run: |
           INSTANCE_ID=$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=DevOps-App-Server" \
-            --query "Reservations[*].Instances[*].InstanceId" \
+            --query "Reservations[0].Instances[0].InstanceId" \
             --output text)
 
-          if [ -z "$INSTANCE_ID" ]; then
-            echo "ERROR: No EC2 instance found with tag DevOps-App-Server"
-            exit 1
-          fi
-
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          echo "Instance ID: $INSTANCE_ID"
 
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+      # -------------------------
+      # GET ECR LOGIN PASSWORD
+      # -------------------------
+      - name: Get ECR login password
+        run: |
+          echo "ECR_PASSWORD=$(aws ecr get-login-password --region ap-south-1)" >> $GITHUB_ENV
 
+      # -------------------------
+      # DEPLOY USING SSM
+      # -------------------------
       - name: Deploy via SSM
         run: |
           aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy latest Docker image" \
             --parameters commands="[
-              \"docker login -u AWS -p $(aws ecr get-login-password --region ap-south-1) ${{ secrets.ECR_REPOSITORY }} || true\",
+              \"docker login -u AWS -p $ECR_PASSWORD ${{ secrets.ECR_REPOSITORY }} || true\",
               \"docker pull ${{ secrets.ECR_REPOSITORY }}:latest\",
               \"docker stop devops-app || true\",
               \"docker rm devops-app || true\",
