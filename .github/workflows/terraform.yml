@@ -1,15 +1,17 @@
-name: Terraform CD Pipeline
+name: Terraform Infrastructure Pipeline
 
 on:
   workflow_dispatch:
-
   push:
     paths:
       - "terraform/**"
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   terraform:
-
     runs-on: ubuntu-latest
 
     defaults:
@@ -17,28 +19,47 @@ jobs:
         working-directory: terraform
 
     steps:
-
+      # -------------------------
+      # Checkout code
+      # -------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # -------------------------
+      # Setup Terraform
+      # -------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      # -------------------------
+      # Configure AWS (OIDC)
+      # -------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ap-south-1
 
+      # -------------------------
+      # Terraform Init
+      # -------------------------
       - name: Terraform Init
-        run: terraform init 
+        run: terraform init
 
+      # -------------------------
+      # Terraform Validate
+      # -------------------------
       - name: Terraform Validate
         run: terraform validate
 
+      # -------------------------
+      # Terraform Plan
+      # -------------------------
       - name: Terraform Plan
         run: terraform plan
 
+      # -------------------------
+      # Terraform Apply
+      # -------------------------
       - name: Terraform Apply
         run: terraform apply -auto-approve
