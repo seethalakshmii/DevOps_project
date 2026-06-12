@@ -2,7 +2,6 @@ data "aws_vpc" "default" {
   default = true
 }
 
-
 data "aws_subnets" "default" {
   filter {
     name   = "vpc-id"
@@ -10,7 +9,9 @@ data "aws_subnets" "default" {
   }
 }
 
-
+# -------------------------
+# SECURITY GROUP
+# -------------------------
 resource "aws_security_group" "app_sg" {
   name   = "devops-app-sg"
   vpc_id = data.aws_vpc.default.id
@@ -31,14 +32,6 @@ resource "aws_security_group" "app_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  ingress {
-    description = "SSH (optional debugging only)"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
@@ -47,13 +40,43 @@ resource "aws_security_group" "app_sg" {
   }
 }
 
+# -------------------------
+# IAM ROLE FOR SSM
+# -------------------------
+resource "aws_iam_role" "ec2_ssm_role" {
+  name = "ec2-ssm-role"
 
-# EC2 INSTANCE (DOCKER INSTALL)
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
 
+resource "aws_iam_role_policy_attachment" "ssm_policy" {
+  role       = aws_iam_role.ec2_ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "ec2_profile" {
+  name = "ec2-ssm-profile"
+  role = aws_iam_role.ec2_ssm_role.name
+}
+
+# -------------------------
+# EC2 INSTANCE
+# -------------------------
 resource "aws_instance" "app" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
   vpc_security_group_ids = [aws_security_group.app_sg.id]
+
+  iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
 
   user_data = <<-EOF
               #!/bin/bash
