@@ -19,62 +19,120 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # -----------------------
+      # Checkout Code
+      # -----------------------
       - name: Checkout
         uses: actions/checkout@v4
 
+      # -----------------------
+      # Setup Python
+      # -----------------------
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install Dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run Tests
-        run: |
-          pytest -v
+        run: pytest -v
 
+      # -----------------------
+      # AWS AUTH
+      # -----------------------
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # -----------------------
+      # ECR LOGIN
+      # -----------------------
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # -----------------------
+      # BUILD IMAGE
+      # -----------------------
       - name: Build Image
-        run: |
-          docker build -t $APP_NAME:${{ github.sha }} .
+        run: docker build -t $APP_NAME:${{ github.sha }} .
 
+      # -----------------------
+      # SECURITY SCAN
+      # -----------------------
       - name: Trivy Scan
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
           image-ref: ${{ env.APP_NAME }}:${{ github.sha }}
 
+      # -----------------------
+      # TAG IMAGE
+      # -----------------------
       - name: Tag Image
         run: |
-          docker tag $APP_NAME:${{ github.sha }} \
-          ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+          docker tag $APP_NAME:${{ github.sha }} ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+          docker tag $APP_NAME:${{ github.sha }} ${{ secrets.ECR_REPOSITORY }}:latest
 
-          docker tag $APP_NAME:${{ github.sha }} \
-          ${{ secrets.ECR_REPOSITORY }}:latest
-
+      # -----------------------
+      # PUSH IMAGE
+      # -----------------------
       - name: Push Image
         run: |
           docker push ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
           docker push ${{ secrets.ECR_REPOSITORY }}:latest
 
+      # -----------------------
+      # GET INSTANCE ID (FIXED SAFELY)
+      # -----------------------
       - name: Get EC2 Instance ID
         run: |
           INSTANCE_ID=$(aws ec2 describe-instances \
+            --region ap-south-1 \
             --filters "Name=tag:Name,Values=DevOps-App-Server" \
             --query "Reservations[0].Instances[0].InstanceId" \
             --output text)
 
+          if [ "$INSTANCE_ID" = "None" ]; then
+            echo "No EC2 instance found"
+            exit 1
+          fi
+
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+
+      # -----------------------
+      # WAIT FOR SSM READY (IMPORTANT FIX)
+      # -----------------------
+      - name: Wait for SSM to be ready
+        run: |
+          echo "Waiting for SSM agent..."
+
+          for i in {1..20}; do
+            STATUS=$(aws ssm describe-instance-information \
+              --region ap-south-1 \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query "InstanceInformationList[0].PingStatus" \
+              --output text 2>/dev/null || echo "NotReady")
+
+            echo "Attempt $i - Status: $STATUS"
+
+            if [ "$STATUS" = "Online" ]; then
+              echo "SSM is READY"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "SSM NOT READY"
+          exit 1
+
+      # -----------------------
+      # DEPLOY VIA SSM
+      # -----------------------
       - name: Deploy via SSM
         run: |
           REGISTRY=$(echo "${{ secrets.ECR_REPOSITORY }}" | cut -d'/' -f1)
