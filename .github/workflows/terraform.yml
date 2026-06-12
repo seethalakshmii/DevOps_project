@@ -1,10 +1,10 @@
-name: Terraform Infrastructure Pipeline
+name: Terraform Pipeline
 
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - "terraform/**"
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   id-token: write

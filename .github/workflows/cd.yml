@@ -8,10 +8,16 @@ on:
 
 jobs:
   deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ap-south-1
@@ -23,14 +29,24 @@ jobs:
             --query "Reservations[*].Instances[*].InstanceId" \
             --output text)
 
+          if [ -z "$INSTANCE_ID" ]; then
+            echo "ERROR: No EC2 instance found with tag DevOps-App-Server"
+            exit 1
+          fi
+
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
 
-      - name: Deploy Application (SSM)
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Deploy via SSM
         run: |
           aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
+            --comment "Deploy latest Docker image" \
             --parameters commands="[
+              \"docker login -u AWS -p $(aws ecr get-login-password --region ap-south-1) ${{ secrets.ECR_REPOSITORY }} || true\",
               \"docker pull ${{ secrets.ECR_REPOSITORY }}:latest\",
               \"docker stop devops-app || true\",
               \"docker rm devops-app || true\",
