@@ -1,0 +1,38 @@
+name: CD Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Get EC2 Instance ID
+        run: |
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=DevOps-App-Server" \
+            --query "Reservations[*].Instances[*].InstanceId" \
+            --output text)
+
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+
+      - name: Deploy Application (SSM)
+        run: |
+          aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands="[
+              \"docker pull ${{ secrets.ECR_REPOSITORY }}:latest\",
+              \"docker stop devops-app || true\",
+              \"docker rm devops-app || true\",
+              \"docker run -d --name devops-app -p 80:5000 ${{ secrets.ECR_REPOSITORY }}:latest\"
+            ]"

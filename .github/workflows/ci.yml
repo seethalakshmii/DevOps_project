@@ -7,46 +7,40 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
+      - uses: actions/checkout@v4
 
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -v
 
-      - name: Run tests
-        run: python -m pytest -v
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ap-south-1
 
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+      - uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image
-        run: docker build -t devops-app .
+      - name: Build Docker Image
+        run: |
+          docker build -t devops-app:${{ github.sha }} .
+          docker tag devops-app:${{ github.sha }} ${{ secrets.ECR_REPOSITORY }}:latest
 
-      - name: Scan image (Trivy)
+      - name: Trivy Scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: devops-app
-
-      - name: Tag Docker image
-        run: docker tag devops-app:latest ${{ secrets.ECR_REPOSITORY }}:latest
+          image-ref: devops-app:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: 1
 
       - name: Push to ECR
         run: docker push ${{ secrets.ECR_REPOSITORY }}:latest

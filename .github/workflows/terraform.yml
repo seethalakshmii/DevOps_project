@@ -2,9 +2,10 @@ name: Terraform CD Pipeline
 
 on:
   workflow_dispatch:
+
   push:
-    branches:
-      - main
+    paths:
+      - "terraform/**"
 
 jobs:
   terraform:

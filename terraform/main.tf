@@ -1,13 +1,80 @@
-resource "aws_instance" "devops" {
+provider "aws" {
+  region = "ap-south-1"
+}
 
-  ami           = var.ami_id
-  instance_type = var.instance_type
+# -----------------------
+# DEFAULT VPC
+# -----------------------
+data "aws_vpc" "default" {
+  default = true
+}
 
-  tags = {
-    Name = "DevOps-server"
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
   }
 }
 
-output "public_ip" {
-  value = aws_instance.devops.public_ip
+# -----------------------
+# SECURITY GROUP
+# -----------------------
+resource "aws_security_group" "app_sg" {
+  name   = "devops-app-sg"
+  vpc_id = data.aws_vpc.default.id
+
+  ingress {
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Flask"
+    from_port   = 5000
+    to_port     = 5000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "SSH (optional debugging only)"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# -----------------------
+# EC2 INSTANCE (DOCKER ONLY)
+# -----------------------
+resource "aws_instance" "app" {
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  vpc_security_group_ids = [aws_security_group.app_sg.id]
+
+  user_data = <<-EOF
+              #!/bin/bash
+              set -e
+
+              yum update -y
+              yum install -y docker
+              systemctl start docker
+              systemctl enable docker
+              usermod -aG docker ec2-user
+              EOF
+
+  tags = {
+    Name = "DevOps-App-Server"
+  }
 }
