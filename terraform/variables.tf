@@ -5,8 +5,7 @@ variable "instance_type" {
 }
 
 variable "app_name" {
-  description = "Application name used for tagging"
+  description = "EC2 Name tag"
   type        = string
   default     = "DevOps-App-Server"
 }
-

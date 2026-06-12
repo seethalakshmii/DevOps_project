@@ -1,67 +1,52 @@
 name: Terraform Pipeline
 
 on:
+  workflow_dispatch: 
   push:
     branches:
       - main
     paths:
       - "terraform/**"
 
+
 permissions:
-  id-token: write
-  contents: read
+id-token: write
+contents: read
 
 jobs:
-  terraform:
-    runs-on: ubuntu-latest
+terraform:
+runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: terraform
+```
+defaults:
+  run:
+    working-directory: terraform
 
-    steps:
-      # -------------------------
-      # Checkout code
-      # -------------------------
-      - name: Checkout code
-        uses: actions/checkout@v4
+steps:
+  - name: Checkout Repository
+    uses: actions/checkout@v4
 
-      # -------------------------
-      # Setup Terraform
-      # -------------------------
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+  - name: Setup Terraform
+    uses: hashicorp/setup-terraform@v3
 
-      # -------------------------
-      # Configure AWS (OIDC)
-      # -------------------------
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ap-south-1
+  - name: Configure AWS Credentials (OIDC)
+    uses: aws-actions/configure-aws-credentials@v4
+    with:
+      role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      aws-region: ap-south-1
 
-      # -------------------------
-      # Terraform Init
-      # -------------------------
-      - name: Terraform Init
-        run: terraform init
+  - name: Terraform Format Check
+    run: terraform fmt -check
 
-      # -------------------------
-      # Terraform Validate
-      # -------------------------
-      - name: Terraform Validate
-        run: terraform validate
+  - name: Terraform Init
+    run: terraform init
 
-      # -------------------------
-      # Terraform Plan
-      # -------------------------
-      
-      - name: Terraform Plan
-        run: terraform plan -refresh=false
+  - name: Terraform Validate
+    run: terraform validate
 
-      # -------------------------
-      # Terraform Apply
-      # -------------------------
-      - name: Terraform Apply
-        run: terraform apply -auto-approve
+  - name: Terraform Plan
+    run: terraform plan -out=tfplan
+
+  - name: Terraform Apply
+    run: terraform apply -auto-approve tfplan
+```

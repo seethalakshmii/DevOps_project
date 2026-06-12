@@ -1,0 +1,91 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  APP_NAME: devops-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Tests
+        run: |
+          pytest -v
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Image
+        run: |
+          docker build -t $APP_NAME:${{ github.sha }} .
+
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          image-ref: ${{ env.APP_NAME }}:${{ github.sha }}
+
+      - name: Tag Image
+        run: |
+          docker tag $APP_NAME:${{ github.sha }} \
+          ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+
+          docker tag $APP_NAME:${{ github.sha }} \
+          ${{ secrets.ECR_REPOSITORY }}:latest
+
+      - name: Push Image
+        run: |
+          docker push ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+          docker push ${{ secrets.ECR_REPOSITORY }}:latest
+
+      - name: Get EC2 Instance ID
+        run: |
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=DevOps-App-Server" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+
+      - name: Deploy via SSM
+        run: |
+          REGISTRY=$(echo "${{ secrets.ECR_REPOSITORY }}" | cut -d'/' -f1)
+
+          aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[
+              \"aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $REGISTRY\",
+              \"docker pull ${{ secrets.ECR_REPOSITORY }}:latest\",
+              \"docker stop devops-app || true\",
+              \"docker rm devops-app || true\",
+              \"docker run -d --restart unless-stopped --name devops-app -p 80:5000 ${{ secrets.ECR_REPOSITORY }}:latest\"
+          ]"
