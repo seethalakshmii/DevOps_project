@@ -1,3 +1,10 @@
+provider "aws" {
+  region = "ap-south-1"   # change if needed
+}
+
+# -------------------------
+# DEFAULT VPC
+# -------------------------
 data "aws_vpc" "default" {
   default = true
 }
@@ -13,8 +20,9 @@ data "aws_subnets" "default" {
 # SECURITY GROUP
 # -------------------------
 resource "aws_security_group" "app_sg" {
-  name   = "devops-app-sg"
-  vpc_id = data.aws_vpc.default.id
+  name        = "devops-app-sg"
+  description = "Allow HTTP and Flask"
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     description = "HTTP"
@@ -32,24 +40,49 @@ resource "aws_security_group" "app_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    description = "SSH (optional)"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = {
+    Name = "devops-app-sg"
+  }
 }
 
+# -------------------------
+# UBUNTU AMI (Latest 22.04)
+# -------------------------
+data "aws_ami" "ubuntu" {
+  most_recent = true
+
+  owners = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+}
 
 # -------------------------
 # EC2 INSTANCE
 # -------------------------
 resource "aws_instance" "app" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  vpc_security_group_ids = [aws_security_group.app_sg.id]
-
-
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.instance_type
+  subnet_id                   = data.aws_subnets.default.ids[0]
+  vpc_security_group_ids      = [aws_security_group.app_sg.id]
+  associate_public_ip_address = true
 
   user_data = <<-EOF
 #!/bin/bash
@@ -67,4 +100,11 @@ EOF
   tags = {
     Name = "DevOps-App-Server"
   }
+}
+
+# -------------------------
+# OUTPUT
+# -------------------------
+output "public_ip" {
+  value = aws_instance.app.public_ip
 }
