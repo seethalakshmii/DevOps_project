@@ -3,6 +3,10 @@ name: Production Multi-File Pipeline
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'docs/**'
 
 permissions:
   id-token: write
@@ -21,29 +25,54 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+       Rachel: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Run Unit Tests
         run: |
           pip install -r requirements.txt
           pytest
 
-  # STEP 2: Call the external Infrastructure Template File
-  infrastructure:
+  # STEP 2: Detect exactly what files changed in this git push
+  detect-changes:
     needs: test
-    uses: ./.github/workflows/terraform.yml
-    secrets: inherit # Passes your AWS_ROLE_ARN secret down to the template file seamlessly
+    runs-on: ubuntu-latest
+    outputs:
+      infra_changed: ${{ steps.filter.outputs.terraform }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Paths Filter Check
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            terraform:
+              - 'terraform/**'
+              - '.github/workflows/terraform.yml'
 
-  # STEP 3: Build, Verify via Trivy, and Deliver Application
+  # STEP 3: Infrastructure Job (Always runs, but passes the change flag down)
+  infrastructure:
+    needs: [test, detect-changes]
+    uses: .github/workflows/terraform.yml
+    with:
+      run_full_apply: ${{ needs.detect-changes.outputs.infra_changed == 'true' }}
+    secrets: inherit
+
+  # STEP 4: Build, Scan, and Secure Deployment
   build-and-deploy:
-    needs: infrastructure # Waits for the terraform file to complete
+    needs: infrastructure
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -55,11 +84,15 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker Image Locally
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+      - name: Build and Package Docker Image with Caching
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          push: false
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Run Trivy Container Image Scanner
         uses: aquasecurity/trivy-action@master
@@ -69,11 +102,9 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
 
-      - name: Push Docker Image to ECR
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      - name: Push Verified Image to ECR
         run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
       - name: Fetch Private Key from AWS SSM
         id: fetch-key
@@ -86,13 +117,12 @@ jobs:
       - name: Deploy Code Directly to EC2 over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          # Reads the output exported from the modular infrastructure file!
-          host: ${{ needs.infrastructure.outputs.ec2_ip }} 
+          host: ${{ needs.infrastructure.outputs.ec2_ip }} # Safely populated every single time!
           username: ${{ env.EC2_USER }}
           key: ${{ env.SSH_KEY }}
           script: |
-            aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-            docker stop my-app || true
-            docker rm my-app || true
-            docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
-            docker run -d --name my-app -p 80:5000 ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            sudo docker stop my-app || true
+            sudo docker rm my-app || true
+            sudo docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            sudo docker run -d --name my-app -p 80:5000 ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
