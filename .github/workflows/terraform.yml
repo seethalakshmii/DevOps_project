@@ -2,6 +2,11 @@ name: Reusable Terraform Engine
 
 on:
   workflow_call:
+    # CRITICAL ADDITION: This maps and registers incoming parameters from deploy.yml
+    inputs:
+      run_full_apply:
+        required: true
+        type: boolean
     outputs:
       ec2_ip:
         description: "The provisioned public IP of the EC2 instance"
@@ -30,17 +35,21 @@ jobs:
           cd terraform/
           terraform init
 
-      # ADDED: Compiles and validates structural updates before execution
+      # Runs the planning blueprint only if infra modifications were detected
       - name: Terraform Plan
+        if: ${{ inputs.run_full_apply == true }}
         run: |
           cd terraform/
           terraform plan -input=false
 
+      # Modifies active AWS infrastructure only if infra modifications were detected
       - name: Terraform Apply
+        if: ${{ inputs.run_full_apply == true }}
         run: |
           cd terraform/
           terraform apply -auto-approve -input=false
 
+      # Always extracts the current public IP from your S3 backend file
       - name: Capture EC2 Public IP
         id: get-ip
         run: |
