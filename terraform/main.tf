@@ -16,6 +16,7 @@ resource "aws_ssm_parameter" "ec2_private_key" {
   type        = "SecureString"
   value       = tls_private_key.ec2_key.private_key_pem
   description = "Dynamically generated SSH private key for EC2 deployment"
+  overwrite   = true
 }
 
 # 4. Create the ECR repository matching the repo name requirements
@@ -28,7 +29,7 @@ resource "aws_ecr_repository" "app_repo" {
   }
 }
 
-# 5. Security Group Configurations (Enabling Ports 22, 80, and 5000)
+# 5. Security Group Configurations
 resource "aws_security_group" "app_sg" {
   name        = "devops-project-sg"
   description = "Allow inbound SSH and App traffic"
@@ -69,7 +70,6 @@ resource "aws_instance" "web_app" {
   key_name               = aws_key_pair.generated_key.key_name 
   vpc_security_group_ids = [aws_security_group.app_sg.id]
 
-  # Cloud-Init script to pre-bootstrap runtime software infrastructure on creation
   user_data = <<-EOF
               #!/bin/bash
               sudo apt-get update -y
