@@ -58,7 +58,8 @@ jobs:
   # STEP 3: Infrastructure Job (Always runs, but passes the change flag down)
   infrastructure:
     needs: [test, detect-changes]
-    uses: .github/workflows/terraform.yml
+    # FIX: Appended '@main' so GitHub knows exactly which branch version to pull
+    uses: .github/workflows/terraform.yml@main
     with:
       run_full_apply: ${{ needs.detect-changes.outputs.infra_changed == 'true' }}
     secrets: inherit
@@ -117,7 +118,7 @@ jobs:
       - name: Deploy Code Directly to EC2 over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ needs.infrastructure.outputs.ec2_ip }} # Safely populated every single time!
+          host: ${{ needs.infrastructure.outputs.ec2_ip }}
           username: ${{ env.EC2_USER }}
           key: ${{ env.SSH_KEY }}
           script: |
