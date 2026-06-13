@@ -34,7 +34,7 @@ jobs:
   # STEP 2: Call the external Infrastructure Template File
   infrastructure:
     needs: test
-    uses: ./.github/workflows/terraform-shared.yml
+    uses: ./.github/workflows/terraform.yml
     secrets: inherit # Passes your AWS_ROLE_ARN secret down to the template file seamlessly
 
   # STEP 3: Build, Verify via Trivy, and Deliver Application
