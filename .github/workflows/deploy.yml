@@ -58,7 +58,7 @@ jobs:
   # STEP 3: Infrastructure Job (Always runs, but passes the change flag down)
   infrastructure:
     needs: [test, detect-changes]
-    # FIX: Uses './' local syntax WITHOUT any '@main' tag at the end
+    # FIXED: Perfectly clean local path without any trailing branch version tags
     uses: ./.github/workflows/terraform.yml
     with:
       run_full_apply: ${{ needs.detect-changes.outputs.infra_changed == 'true' }}
