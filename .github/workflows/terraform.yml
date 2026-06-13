@@ -1,0 +1,40 @@
+name: Terraform Engine
+
+on:
+  workflow_call:
+    # Map out the data this workflow will send back to the main pipeline
+    outputs:
+      ec2_ip:
+        description: "The provisioned public IP of the EC2 instance"
+        value: ${{ jobs.provision.outputs.ec2_ip }}
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    outputs:
+      ec2_ip: ${{ steps.get-ip.outputs.ip }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        run: |
+          cd terraform/
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Capture EC2 Public IP
+        id: get-ip
+        run: |
+          cd terraform/
+          IP_ADDRESS=$(terraform output -raw ec2_public_ip)
+          echo "ip=$IP_ADDRESS" >> $GITHUB_OUTPUT

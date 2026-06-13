@@ -1,12 +1,12 @@
-name: Zero-Secret CI/CD Pipeline
+name: Production Multi-File Pipeline
 
 on:
   push:
     branches: [ "main" ]
 
 permissions:
-  id-token: write   # Mandated for AWS OIDC token exchange
-  contents: read    # Mandated to pull down repository source code
+  id-token: write
+  contents: read
 
 env:
   AWS_REGION: ap-south-1
@@ -14,7 +14,7 @@ env:
   EC2_USER: ubuntu
 
 jobs:
-  # Job 1: Run local Python Unit Tests
+  # STEP 1: Code Validation
   test:
     runs-on: ubuntu-latest
     steps:
@@ -31,41 +31,15 @@ jobs:
           pip install -r requirements.txt
           pytest
 
-  # Job 2: Infrastructure Provisioning (Terraform)
-  terraform:
+  # STEP 2: Call the external Infrastructure Template File
+  infrastructure:
     needs: test
-    runs-on: ubuntu-latest
-    outputs:
-      ec2_ip: ${{ steps.get-ip.outputs.ip }} # Maps the server IP as an output for Job 3
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    uses: ./.github/workflows/terraform-shared.yml
+    secrets: inherit # Passes your AWS_ROLE_ARN secret down to the template file seamlessly
 
-      - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }} 
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init & Apply
-        run: |
-          cd terraform/
-          terraform init
-          terraform apply -auto-approve
-
-      - name: Capture EC2 Public IP
-        id: get-ip
-        run: |
-          cd terraform/
-          IP_ADDRESS=$(terraform output -raw ec2_public_ip)
-          echo "ip=$IP_ADDRESS" >> $GITHUB_OUTPUT
-
-  # Job 3: Build, Scan Image with Trivy, Push to ECR, and Deploy
-  build-scan-and-deploy:
-    needs: terraform
+  # STEP 3: Build, Verify via Trivy, and Deliver Application
+  build-and-deploy:
+    needs: infrastructure # Waits for the terraform file to complete
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -81,14 +55,12 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 1. BUILD IMAGE LOCALLY FIRST
       - name: Build Docker Image Locally
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
 
-      # 2. SCAN THE COMPILED DOCKER IMAGE
       - name: Run Trivy Container Image Scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -97,14 +69,12 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
 
-      # 3. PUSH TO ECR (Only executes if Trivy scan passes)
       - name: Push Docker Image to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      # 4. FETCH SSH KEY DYNAMICALLY FROM PARAMETER STORE
       - name: Fetch Private Key from AWS SSM
         id: fetch-key
         run: |
@@ -113,18 +83,16 @@ jobs:
           echo "$PRIVATE_KEY" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # 5. REMOTE SSH DEPLOYMENT ONTO EC2 HOST
       - name: Deploy Code Directly to EC2 over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ needs.terraform.outputs.ec2_ip }}
+          # Reads the output exported from the modular infrastructure file!
+          host: ${{ needs.infrastructure.outputs.ec2_ip }} 
           username: ${{ env.EC2_USER }}
           key: ${{ env.SSH_KEY }}
           script: |
             aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-            
             docker stop my-app || true
             docker rm my-app || true
-            
             docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
             docker run -d --name my-app -p 80:5000 ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
