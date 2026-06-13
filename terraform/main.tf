@@ -1,29 +1,45 @@
-# ----------------------------------
-# DEFAULT VPC & SUBNET
-# ----------------------------------
-data "aws_vpc" "default" {
-  default = true
+# 1. Dynamically generate an asymmetric private key pair
+resource "tls_private_key" "ec2_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
 }
 
-data "aws_subnets" "default" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
-  }
+# 2. Register public credentials directly into the EC2 engine
+resource "aws_key_pair" "generated_key" {
+  key_name   = var.key_name
+  public_key = tls_private_key.ec2_key.public_key_openssh
 }
 
-# ----------------------------------
-# SECURITY GROUP
-# ----------------------------------
+# 3. Store private key securely in AWS Systems Manager Parameter Store
+resource "aws_ssm_parameter" "ec2_private_key" {
+  name        = "/devops/ec2_private_key"
+  type        = "SecureString"
+  value       = tls_private_key.ec2_key.private_key_pem
+  description = "Dynamically generated SSH private key for EC2 deployment"
+}
+
+# 4. Security Group Configurations (Enabling Ports 22, 80, and 5000)
 resource "aws_security_group" "app_sg" {
-  name        = "devops-app-sg"
-  description = "Allow HTTP traffic"
-  vpc_id      = data.aws_vpc.default.id
+  name        = "devops-project-sg"
+  description = "Allow inbound SSH and App traffic"
 
   ingress {
-    description = "HTTP"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] 
+  }
+
+  ingress {
     from_port   = 80
     to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 5000
+    to_port     = 5000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -34,101 +50,32 @@ resource "aws_security_group" "app_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = {
-    Name = "devops-app-sg"
-  }
 }
 
-# ----------------------------------
-# IAM ROLE (SSM + ECR ACCESS)
-# ----------------------------------
-resource "aws_iam_role" "ec2_role" {
-  name = "devops-ec2-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "ec2.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ssm" {
-  role       = aws_iam_role.ec2_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-resource "aws_iam_role_policy_attachment" "ecr" {
-  role       = aws_iam_role.ec2_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-}
-
-resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "devops-ec2-profile"
-  role = aws_iam_role.ec2_role.name
-}
-
-# ----------------------------------
-# UBUNTU AMI
-# ----------------------------------
-data "aws_ami" "ubuntu" {
-  most_recent = true
-
-  owners = ["099720109477"]
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
-  }
-}
-
-# ----------------------------------
-# EC2 INSTANCE
-# ----------------------------------
-resource "aws_instance" "app" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = var.instance_type
-
-  subnet_id              = data.aws_subnets.default.ids[0]
+# 5. EC2 Host Instance Assignment
+resource "aws_instance" "web_app" {
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.generated_key.key_name 
   vpc_security_group_ids = [aws_security_group.app_sg.id]
 
-  associate_public_ip_address = true
-  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
-
+  # Cloud-Init script to pre-bootstrap runtime software infrastructure on creation
   user_data = <<-EOF
-#!/bin/bash
-set -e
-
-# -----------------------------
-# UPDATE SYSTEM
-# -----------------------------
-apt update -y
-
-# -----------------------------
-# INSTALL DOCKER
-# -----------------------------
-apt install -y docker.io
-systemctl enable docker
-systemctl start docker
-usermod -aG docker ubuntu
-
-# -----------------------------
-# INSTALL SSM AGENT (FIXED - RELIABLE)
-# -----------------------------
-cd /tmp
-curl -O https://s3.ap-south-1.amazonaws.com/amazon-ssm-ap-south-1/latest/debian_amd64/amazon-ssm-agent.deb
-dpkg -i amazon-ssm-agent.deb
-
-systemctl enable amazon-ssm-agent
-systemctl start amazon-ssm-agent
-EOF
+              #!/bin/bash
+              sudo apt-get update -y
+              sudo apt-get install -y docker.io awscli
+              sudo systemctl start docker
+              sudo systemctl enable docker
+              sudo usermod -aG docker ubuntu
+              EOF
 
   tags = {
-    Name = var.app_name
+    Name = "DevOps-Project-Target"
   }
+}
+
+# 6. Public IP Export Definition Block
+output "ec2_public_ip" {
+  value       = aws_instance.web_app.public_ip
+  description = "The dynamically provisioned public IP of the EC2 Instance."
 }
