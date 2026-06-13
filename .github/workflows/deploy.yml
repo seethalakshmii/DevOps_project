@@ -10,7 +10,7 @@ permissions:
 
 env:
   AWS_REGION: ap-south-1
-  ECR_REPOSITORY: my-python-app
+  ECR_REPOSITORY: devops-app
   EC2_USER: ubuntu
 
 jobs:
@@ -46,7 +46,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }} 
           aws-region: ${{ env.AWS_REGION }}
-          aws-sts-regional-endpoints: true
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -77,7 +76,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          aws-sts-regional-endpoints: true
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -99,14 +97,14 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
 
-      # 3. PUSH TO ECR (Only executes if Trivy scan returns 0 vulnerabilities)
+      # 3. PUSH TO ECR (Only executes if Trivy scan passes)
       - name: Push Docker Image to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      # 4. FETCH SSH KEY DYNAMICALLY
+      # 4. FETCH SSH KEY DYNAMICALLY FROM PARAMETER STORE
       - name: Fetch Private Key from AWS SSM
         id: fetch-key
         run: |

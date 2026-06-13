@@ -18,7 +18,17 @@ resource "aws_ssm_parameter" "ec2_private_key" {
   description = "Dynamically generated SSH private key for EC2 deployment"
 }
 
-# 4. Security Group Configurations (Enabling Ports 22, 80, and 5000)
+# 4. Create the ECR repository matching the repo name requirements
+resource "aws_ecr_repository" "app_repo" {
+  name                 = "devops-app"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = false
+  }
+}
+
+# 5. Security Group Configurations (Enabling Ports 22, 80, and 5000)
 resource "aws_security_group" "app_sg" {
   name        = "devops-project-sg"
   description = "Allow inbound SSH and App traffic"
@@ -52,7 +62,7 @@ resource "aws_security_group" "app_sg" {
   }
 }
 
-# 5. EC2 Host Instance Assignment
+# 6. EC2 Host Instance Assignment
 resource "aws_instance" "web_app" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
@@ -74,7 +84,7 @@ resource "aws_instance" "web_app" {
   }
 }
 
-# 6. Public IP Export Definition Block
+# 7. Public IP Export Definition Block
 output "ec2_public_ip" {
   value       = aws_instance.web_app.public_ip
   description = "The dynamically provisioned public IP of the EC2 Instance."
